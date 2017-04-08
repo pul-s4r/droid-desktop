@@ -1,0 +1,18 @@
+# droid-standalone
+Team Pokemon's repository for CREATE's autonomous car project. 
+
+Currently, all references to Pi libraries have been stripped to make developing the software easier on a desktop. Porting the software back to Pi will occur when the team has ready access to a machine or a properly configured simulator. 
+
+Build Instructions: 
+Navigate to main directory with the Makefile. Type 'make' into terminal and hit enter. 
+
+Run instructions: 
+Comment/uncomment relevant hash defines at the top of main.cpp. 
+
+	#define STILL_IMAGES:	Use the sample images provided. 
+	#define DISP_TEST: 	Display the image with objects/paths plotted. 
+	#define OUTPUT_IMAGE:	Export images with object/path plots into separate files. 
+
+Navigate to main directory with main.cpp. Type 'sudo ./bin/main' and hit enter to run. Run from main directory so the program correctly identifies the image read/write file path. Alternatively, run 'main' (symlink to ./bin/main) from the main directory. 
+
+I WOULD LOVE TO SEE IT
