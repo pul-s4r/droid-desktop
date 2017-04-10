@@ -11,7 +11,7 @@
 #include <opencv2/highgui.hpp>
 
 // Define processing mode: still images, or video
-#define STILL_IMAGES
+// #define STILL_IMAGES
 
 // Define: output the processed image file
 // #define OUTPUT_IMAGE
