@@ -45,6 +45,9 @@ static string image_path = "./sample_images/";
 static string window_unmodified = "Unmodified image";
 static string window_hsv_image = "HSV image";
 static string window_camera = "Camera";
+static string window_grey_path = "Grey with path superimposed";
+static string window_canny = "Canny";
+static string window_centrepath = "Centre path";
 
 // Video capture containers
 typedef VideoCapture camera_t;
@@ -270,8 +273,12 @@ int main(int argc, char * argv[]) {
         #ifdef DISP_TEST
             // imshow(window_hsv_image, imGrey);
             imshow(window_unmodified, im);
+            moveWindow(window_canny, iw, 0);
+            moveWindow(window_grey_path, 2*iw, 0);
         #else
-            imshow(window_camera, im);
+            // imshow(window_camera, im);
+            // moveWindow(window_canny, im.cols, 0);
+            // moveWindow(window_grey_path, im.rows, 0);
         #endif
 
         /*
@@ -564,9 +571,9 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 
 	// show binary mask
 	#ifdef DISP_TEST
-		imshow("Canny", edges);
-		//imshow("Centre path", centrePath);
-		imshow("Grey with path superimposed", grey);
+		imshow(window_canny, edges);
+		//imshow(window_centrepath, centrePath);
+		imshow(window_grey_path, grey);
 	#endif
 
 	//cout << "Max accel: " << maxAccel << " at row " << maxRow << endl;
