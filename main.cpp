@@ -11,7 +11,7 @@
 #include <opencv2/highgui.hpp>
 
 // Define processing mode: still images, or video
-// #define STILL_IMAGES
+#define STILL_IMAGES
 
 // Define: output the processed image file
 // #define OUTPUT_IMAGE
@@ -227,7 +227,7 @@ int main(int argc, char * argv[]) {
         detect_path(imGrey, steeringAngle, speed);
 
         // plot estimated steering path on top of image as circular arc
-		if(abs(steeringAngle) > 0.1){
+		if(abs(steeringAngle) > 1.0){
 			int radius = abs(1000 / steeringAngle);
 			Point2i centre;
 			if(steeringAngle > 0){
@@ -305,8 +305,7 @@ int main(int argc, char * argv[]) {
 
 }
 
-colour_t sharp_corner(Mat hsv)
-{
+colour_t sharp_corner(Mat hsv) {
 	Mat maskYellow;
 	Mat checkYellow = hsv(Rect2i(0,0, iw/3, ih));
 	inRange(checkYellow, Scalar(0, 60, 60), Scalar(60, 255, 255), maskYellow);
@@ -382,7 +381,8 @@ void detect_obstacles(Mat hsv, vector<Rect2i> & obj) {
 
 	//vector<vector<Point>> contours_poly( contours.size() );
 
-	// get rectangles of large obstacles
+	// draw rectangles of large obstacles
+    // (size is determined by distance to camera)
 	for(size_t i = 0; i < contours.size(); ++i){
 		//approxPolyDP( Mat(contours[i]), contours_poly[i], 3, true);
 		if(contourArea(contours[i]) > 2000){
@@ -397,7 +397,7 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 	Mat edges;
 
 	/** PLEASE READ UP ON CANNY **/
-	Canny(grey, edges, 80, 240); // note edge thresholding numbers
+	Canny(grey, edges, 80, 200); // note edge thresholding numbers
 
 	// distort edge binary and grey image to correct for oblique perspective
 	warpPerspective(edges, edges, perspectiveMat, edges.size());
