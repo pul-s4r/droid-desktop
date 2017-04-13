@@ -231,7 +231,7 @@ int main(int argc, char * argv[]) {
 			int radius = abs(1000 / steeringAngle);
 			Point2i centre;
 			if(steeringAngle > 0){
-				centre = Point2i(iw/2 -1 + radius, ih - 1);
+				centre = Point2i(iw/2 - 1 + radius, ih - 1);
 			} else {
 				centre = Point2i(iw/2 - 1 - radius, ih - 1);
 			}
