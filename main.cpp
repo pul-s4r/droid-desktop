@@ -13,6 +13,9 @@
 // Define processing mode: still images, or video
 #define STILL_IMAGES
 
+// Define if motors are to be driven
+#define MOTORS_ENABLE
+
 // Define: output the processed image file
 // #define OUTPUT_IMAGE
 
@@ -38,6 +41,17 @@ Variables
 static const int iw = 320;
 static const int ih = 240;
 
+static const int steeringCentre = 0;
+static const int steeringConstRight = 20;
+static const int steeringConstLeft = 30;
+static const int steeringAngleLimit = 250;
+static const int steeringTurnback = 400;
+static const int steeringTurnAwayBlue = -500; //right
+static const int steeringTurnAwayYellow = 500; //left
+static const int speedTurnAwayBlue = 15;
+static const int speedTurnAwayYellow = 15;
+static const int speedConst = 50;
+
 // File path for sample image processing
 static string image_path = "./sample_images/";
 
@@ -60,7 +74,11 @@ const float aperture = 3.0; // makes 2*apeture - 1 scaling
 
 // Function headers
 void detect_path(Mat & grey, double & steeringAngle, double & speed);
+void plot_path(Mat im, double & steeringAngle, double & speed);
 void detect_obstacles(Mat hsv, vector<Rect2i> & obj);
+void plot_obstacles(Mat im, vector<Rect2i> & obstacles);
+int getOutAngle(colour_t colourLine, double & steeringAngle);
+int getOutSpeed(colour_t colourLine, double & speed);
 colour_t sharp_corner(Mat middle);
 // bool handle_remote_switch(DriveControl & control);
 void camera_setup(camera_t & cam);
@@ -129,7 +147,7 @@ int main(int argc, char * argv[]) {
 		cam.open(0);
 
         // Check if camera is open, exit if not
-		if (!cam.isOpened()){
+		if (!cam.isOpened()) {
 			cout << "Camera not found" << endl;
 			return -1;
 		}
@@ -170,7 +188,7 @@ int main(int argc, char * argv[]) {
 
             // read file and exit on end
             imLarge = imread(filename.str());
-            if(imLarge.data==NULL){
+            if(imLarge.data==NULL) {
                 cout << "Reached end of images" << endl;
                 return 0;
             }
@@ -203,63 +221,18 @@ int main(int argc, char * argv[]) {
 
         // find and plot obstacles in region of interest
         detect_obstacles(imHSV, obstacles);
-        for(auto & el : obstacles){
-            // el.x += ROI.x;
-            // el.y += ROI.y;
-
-            // draw box around each obstacle
-            rectangle(im, el, Scalar(255,0,0));
-            // rectangle(imGrey, el, Scalar(100));
-
-            // draw triangle leading into obstacle
-            // for path calculation
-            int triangleHeight = min(el.width/2,
-             ih - (el.y + el.height));
-            Point2i vertex(el.x + el.width/2,
-             el.y + el.height + triangleHeight);
-            Point2i bottomL(el.x, el.y + el.height - 1);
-            Point2i bottomR = el.br();
-            line(im, bottomL, vertex, Scalar(255), 2);
-            line(im, bottomR, vertex, Scalar(255), 2);
-        }
+        plot_obstacles(im, obstacles);
 
         // determine path and steering angle, returns corrected image
-        detect_path(imGrey, steeringAngle, speed);
-
         // plot estimated steering path on top of image as circular arc
-		if(abs(steeringAngle) > 1.0){
-			int radius = abs(1000 / steeringAngle);
-			Point2i centre;
-			if(steeringAngle > 0){
-				centre = Point2i(iw/2 - 1 + radius, ih - 1);
-			} else {
-				centre = Point2i(iw/2 - 1 - radius, ih - 1);
-			}
-			circle(im, centre, radius, Scalar(0,0,255));
-			circle(imGrey, centre, radius, Scalar(255));
-		}
+        detect_path(imGrey, steeringAngle, speed);
+        plot_path(im, steeringAngle, speed);
+
 		//cout << "Steering angle: " << steeringAngle << "	Speed: " << speed << endl;
 
 		// CHANGE CONSTANTS FOR MODIFIED RESPONSE
-		if(colourLine == NONE){
-			if(steeringAngle > 0){
-				outAngle = steeringAngle * 20; // right steering constant [change this]
-			} else {
-				outAngle = steeringAngle * 30; // left steering constant [change this]
-				if(outAngle > 250){
-					outAngle = 400;
-				}
-			}
-			outSpeed = speed * 50;	// speed constant [change this]
-		} else if(colourLine == YELLOW){
-			outAngle = -500;
-			outSpeed = 15;
-			cout << "Yellow line in front!" << endl;
-		} else if(colourLine == BLUE){
-			outAngle = 500;
-			outSpeed = 15;
-			cout << "Blue line in front!" << endl;
-		}
+        outAngle = getOutAngle(colourLine, steeringAngle);
+        outSpeed = getOutSpeed(colourLine, speed);
 
         // get time of end of loop
 		end = clock();
@@ -320,8 +293,8 @@ colour_t sharp_corner(Mat hsv) {
 	findContours(maskYellow, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0,0) );
 
         // get rectangles of large obstacles
-        for(size_t i = 0; i < contours.size(); ++i){
-                if(contourArea(contours[i]) > 100){
+        for(size_t i = 0; i < contours.size(); ++i) {
+                if(contourArea(contours[i]) > 100) {
                         return YELLOW;
                 }
         }
@@ -338,8 +311,8 @@ colour_t sharp_corner(Mat hsv) {
 
 	findContours(maskBlue, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0,0) );
 
-	for(size_t i = 0; i < contours.size(); ++i){
-                if(contourArea(contours[i]) > 100){
+	for(size_t i = 0; i < contours.size(); ++i) {
+                if(contourArea(contours[i]) > 100) {
                         return BLUE;
                 }
         }
@@ -356,6 +329,7 @@ void detect_obstacles(Mat hsv, vector<Rect2i> & obj) {
 	//inRange(hsv, Scalar(110, 100, 80), Scalar(130, 255, 255), mask);
 	// generate mask of all saturated colours
 	inRange(hsv, Scalar(0, 50, 50), Scalar(255, 255, 255), mask);
+    imshow("Mask", mask);
 
 	// eliminate noise
 	int n = 2;
@@ -370,7 +344,7 @@ void detect_obstacles(Mat hsv, vector<Rect2i> & obj) {
 
 	// draw convex hulls around detected contours
 	findContours(mask, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0) );
-	for(size_t i = 0; i < contours.size(); ++i){
+	for(size_t i = 0; i < contours.size(); ++i) {
 		drawContours(mask, contours, (int)i, Scalar(255), CV_FILLED);
 	}
 	//n = 4;
@@ -383,13 +357,35 @@ void detect_obstacles(Mat hsv, vector<Rect2i> & obj) {
 
 	// draw rectangles of large obstacles
     // (size is determined by distance to camera)
-	for(size_t i = 0; i < contours.size(); ++i){
+	for(size_t i = 0; i < contours.size(); ++i) {
 		//approxPolyDP( Mat(contours[i]), contours_poly[i], 3, true);
-		if(contourArea(contours[i]) > 2000){
+		if(contourArea(contours[i]) > 2000) {
 			Rect object = boundingRect( Mat(contours[i]) );
 			obj.push_back(object);
 		}
 	}
+}
+
+void plot_obstacles(Mat im, vector<Rect2i> & obstacles) {
+    for(auto & el : obstacles) {
+        // el.x += ROI.x;
+        // el.y += ROI.y;
+
+        // draw box around each obstacle
+        rectangle(im, el, Scalar(255,0,0));
+        // rectangle(imGrey, el, Scalar(100));
+
+        // draw triangle leading into obstacle
+        // for path calculation
+        int triangleHeight = min(el.width/2,
+         ih - (el.y + el.height));
+        Point2i vertex(el.x + el.width/2,
+         el.y + el.height + triangleHeight);
+        Point2i bottomL(el.x, el.y + el.height - 1);
+        Point2i bottomR = el.br();
+        line(im, bottomL, vertex, Scalar(255), 2);
+        line(im, bottomR, vertex, Scalar(255), 2);
+    }
 }
 
 void detect_path(Mat & grey, double & steeringAngle, double & speed) {
@@ -436,19 +432,19 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 	list<double> accels;
 
 	// iterate from the bottom (droid) edge of the image to the top
-	for(row = height - 1; row >= 0; --row){
+	for(row = height - 1; row >= 0; --row) {
 
 		perspectiveDistance = width*(1-1/(2*aperture-1))*((double)row/(double)(1.5*height-1))/2;
 		//perspectiveDistance = 0;
-		//if(row == 30){
+		//if(row == 30) {
 		//	cout << "Row: " << row << "	perspectivePixels: " << perspectiveCalc << endl;
 		//}
 		// start looking for left border from the centre path, iterate outwards
 		leftBorder = centre;
 		leftFound = false;
-		while(leftBorder > perspectiveDistance){//(leftBorder > 0){
+		while(leftBorder > perspectiveDistance) {//(leftBorder > 0) {
 			leftBorder--;
-			if(edges.at<uchar>(row, leftBorder) > 0){
+			if(edges.at<uchar>(row, leftBorder) > 0) {
 				// if an edge is found, assume its the border, and break
 				break;
 			}
@@ -457,9 +453,9 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 		// start looking for right border from the centre path, iterate outwards
 		rightBorder = centre;
 		rightFound = false;
-		while(rightBorder < width - perspectiveDistance){//(rightBorder < width){}
+		while(rightBorder < width - perspectiveDistance) {//(rightBorder < width) {}
 			rightBorder++;
-			if(edges.at<uchar>(row, rightBorder) > 0){
+			if(edges.at<uchar>(row, rightBorder) > 0) {
 				// if an edge is found, assume its the border, and break
 				break;
 			}
@@ -477,7 +473,7 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 		double accel;
 
 		// feed terms into horizontal rate accross image
-		if(row == height - 1){
+		if(row == height - 1) {
 			accel = 0;// ff * 0.005;
 		} else {
 			accel = ff * 0.001 + deltaF * 0.01;
@@ -488,12 +484,12 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 		difference += accel;
 
 		// if the end of the first turn hasn't been reached
-		if(!turnFinished){
+		if(!turnFinished) {
 			// if the start of the first bend is detected
-			if(!turnInitiated && abs(steeringAngle) > 0.12){
+			if(!turnInitiated && abs(steeringAngle) > 0.12) {
 				// record initial turn direction
 				turnInitiated = true;
-				if(steeringAngle > 0){
+				if(steeringAngle > 0) {
 					steeringDirection = RIGHT;
 				} else {
 					steeringDirection = LEFT;
@@ -501,7 +497,7 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 			}
 
 			// record maximum acceleration in first turn
-			if(abs(accel) > maxAccel){
+			if(abs(accel) > maxAccel) {
 				maxAccel = abs(accel);
 				maxRow = row;
 			}
@@ -511,11 +507,11 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 
 			// record the last few accelerations and produce an average
 			accels.push_back(accel);
-			if(accels.size() > 5){
+			if(accels.size() > 5) {
 				accels.pop_front();
 			}
 			double meanAccel = 0;
-			for(auto el : accels){
+			for(auto el : accels) {
 				meanAccel += el;
 			}
 			meanAccel /= accels.size();
@@ -524,21 +520,21 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 			if(row < height - 200) {
 				// no turn near
 				turnFinished = true;
-			} else if (meanAccel < 0 && steeringDirection == RIGHT){
+			} else if (meanAccel < 0 && steeringDirection == RIGHT) {
 				// acceleration to the left in a right turn
 				turnFinished = true;
-			} else if (meanAccel > 0 && steeringDirection == LEFT){
+			} else if (meanAccel > 0 && steeringDirection == LEFT) {
 				// acceleration to the right in a left turn
 				turnFinished = true;
 			}
 
-			if(turnFinished){
+			if(turnFinished) {
 				// get the mean acceleration in the turn
 				steeringAngle /= (height - row);
 
 				// adjust steering angle with a signed square and other constants
 				steeringAngle *= 10;
-				if(steeringAngle >= 0){
+				if(steeringAngle >= 0) {
 					steeringAngle *= steeringAngle;
 				} else {
 					steeringAngle *= steeringAngle;
@@ -561,7 +557,7 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 		oldF = ff;
 
 		// draw path pixels on images
-		for(int i = - 1; i <=	1; ++i){
+		for(int i = - 1; i <=	1; ++i) {
 			grey.at<uchar>(row,	(int)deadCentre + i) = uchar(0);
 			//centrePath.at<uchar>(row, (int)centre + i) = uchar(255);
 			grey.at<uchar>(row, (int)centre + i) = uchar(255);
@@ -577,6 +573,57 @@ void detect_path(Mat & grey, double & steeringAngle, double & speed) {
 	#endif
 
 	//cout << "Max accel: " << maxAccel << " at row " << maxRow << endl;
+}
+
+void plot_path(Mat im, double & steeringAngle, double & speed) {
+    printf("%f %f\n", steeringAngle, speed);
+    if(abs(steeringAngle) > 1.0) {
+        int radius = abs(1000 / steeringAngle);
+        Point2i centre;
+        if(steeringAngle > 0) {
+            centre = Point2i(iw/2 - 1 + radius, ih - 1);
+        } else {
+            centre = Point2i(iw/2 - 1 - radius, ih - 1);
+        }
+        circle(im, centre, radius, Scalar(0,0,255));
+        // circle(imGrey, centre, radius, Scalar(255));
+    }
+}
+
+int getOutAngle(colour_t colourLine, double & steeringAngle) {
+    int outAngle = 0;
+    if(colourLine == NONE) {
+        if(steeringAngle > steeringCentre) {
+            outAngle = steeringAngle * steeringConstRight; // right steering constant [change this]
+        } else {
+            outAngle = steeringAngle * steeringConstLeft; // left steering constant [change this]
+            if(outAngle > steeringAngleLimit) {
+                outAngle = steeringTurnback;
+            }
+        }
+    } else if(colourLine == YELLOW) {
+        outAngle = steeringTurnAwayYellow;
+        // cout << "Yellow line in front!" << endl;
+    } else if(colourLine == BLUE) {
+        outAngle = steeringTurnAwayBlue;
+        // cout << "Blue line in front!" << endl;
+    }
+
+    return outAngle;
+}
+
+int getOutSpeed(colour_t colourLine, double & speed) {
+    int outSpeed = 0;
+    if(colourLine == NONE) {
+    	outSpeed = speed * speedConst;	// speed constant [change this]
+    } else if(colourLine == YELLOW) {
+    	outSpeed = speedTurnAwayYellow;
+    	// cout << "Yellow line in front!" << endl;
+    } else if(colourLine == BLUE) {
+    	outSpeed = speedTurnAwayBlue;
+    	// cout << "Blue line in front!" << endl;
+    }
+    return outSpeed;
 }
 
 // Configure camera settings
