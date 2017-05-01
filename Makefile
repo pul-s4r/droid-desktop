@@ -26,6 +26,9 @@ all: run
 run: $(OBJ_FILES) main.cpp
 	g++ $(OPTIONS) $(SPEC_FLAG) -o $(EXEC_DIRS)main main.cpp $(INCL_DIRS) $(OBJ_FILES) --std=c++11 -g $(LIBS) -pthread
 
+min: main.cpp
+	g++ $(OPTIONS) $(SPEC_FLAG) -o $(EXEC_DIRS)main main.cpp $(INCL_DIRS) --std=c++11 -g $(LIBS) -pthread
+
 src/%.o: src/%.cpp
 	g++ $(OPTIONS) $(SPEC_FLAG) -c -o $@ $< $(INCL_DIRS) --std=c++11 -pthread
 

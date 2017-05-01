@@ -14,7 +14,7 @@
 #define STILL_IMAGES
 
 // Define if motors are to be driven
-#define MOTORS_ENABLE
+// #define MOTORS_ENABLE
 
 // Define: output the processed image file
 // #define OUTPUT_IMAGE
@@ -22,11 +22,18 @@
 // Define to display all image output
 #define DISP_TEST
 
-// Streaming and Pi interaction to be added at a later date.
-
+// Define to stream processed footage
+// #define STREAMING
 
 // Project-specific headers
-// #include "include/Readimage.hpp"
+#ifdef MOTORS_ENABLE
+    #include "DriveControl.hpp"
+    #include "ReadImage.hpp"
+#endif
+
+#ifdef MOTORS_ENABLE
+    #include <wiringPi.h>
+#endif
 
 // #include "main.hpp"
 
@@ -80,9 +87,11 @@ void plot_obstacles(Mat im, vector<Rect2i> & obstacles);
 int getOutAngle(colour_t colourLine, double & steeringAngle);
 int getOutSpeed(colour_t colourLine, double & speed);
 colour_t sharp_corner(Mat middle);
-// bool handle_remote_switch(DriveControl & control);
+#ifdef WIRINGPI_H
+    bool handle_remote_switch(DriveControl & control);
+    void sleep(double seconds);
+#endif
 void camera_setup(camera_t & cam);
-// void sleep(double seconds);
 
 int main(int argc, char * argv[]) {
     /*
@@ -113,6 +122,10 @@ int main(int argc, char * argv[]) {
 	stringstream filename;
 	int imIndex = 462; // first jpeg in samples folder has index 0462
 
+    #ifdef MOTORS_ENABLE
+        DriveControl control;
+    #endif
+
     // Instance variables for driving steering and speed
     double steeringAngle = 0;
     double speed = 0;
@@ -132,6 +145,24 @@ int main(int argc, char * argv[]) {
                     Point2f(0, ih - 1)
                     };
 	perspectiveMat = getPerspectiveTransform(src, dst);
+
+    #ifdef MOTORS_ENABLE
+        cout << "Setting up GPIO" << endl;
+        wiringPiSetup();
+
+        pinMode(FLAG_PIN, INPUT);
+        pullUpDnControl(FLAG_PIN, PUD_UP);
+
+        pinMode(REMOTE_PIN, INPUT);
+        pullUpDnControl(REMOTE_PIN, PUD_UP);
+
+        sleep(0.1);
+    #endif
+
+    #ifdef MOTORS_ENABLE
+        // Wait for remote switch to be pressed twice
+        while(!handle_remote_switch(control)){}
+    #endif
 
     /*
     If using camera, open camera
@@ -153,6 +184,12 @@ int main(int argc, char * argv[]) {
 		}
 	#endif
 
+    #ifdef STREAMING
+        // Turn on streaming capability
+        cout << "Turning on streaming" << endl;
+        ReadStream readStream(argc, argv);
+    #endif
+
     /*
         Time each iteration
     */
@@ -171,6 +208,11 @@ int main(int argc, char * argv[]) {
             (uses ctime)
         */
 		begin = clock();
+
+        #ifdef MOTORS_ENABLE
+            // check for shutoff
+            handle_remote_switch(control);
+        #endif
 
         /*
             Get next image.
@@ -242,6 +284,13 @@ int main(int argc, char * argv[]) {
         cout << "Image size: " << im.size() << " Loop time: "
             << loopTime << endl;
 
+
+		#ifdef MOTORS_ENABLE
+			cout << "Writing out speed: " << outSpeed << " angle: " << outAngle << endl;
+			control.set_desired_speed(outSpeed);
+			control.set_desired_steer(outAngle);
+		#endif
+
         // Output the image
         #ifdef DISP_TEST
             // imshow(window_hsv_image, imGrey);
@@ -270,12 +319,18 @@ int main(int argc, char * argv[]) {
 			waitKey(5);
 		#endif
 
+        #ifdef STREAMING
+            // stream modified frame over TCP
+            readStream.writeStream(imGrey);
+        #endif
+
         // Clear the obstacles vector for the next iteration
         obstacles.clear();
 
     }
     // End of main loop
 
+    return 0;
 }
 
 colour_t sharp_corner(Mat hsv) {
@@ -626,6 +681,37 @@ int getOutSpeed(colour_t colourLine, double & speed) {
     return outSpeed;
 }
 
+#ifdef WIRINGPI_H
+bool handle_remote_switch(DriveControl & control) {
+	if(digitalRead(FLAG_PIN) == LOW || digitalRead(REMOTE_PIN) == LOW){
+		cout << "Switch detected: stopping motors" << endl;
+		cout << "Flag pin: " << digitalRead(FLAG_PIN) << "	Remote pin: " << digitalRead(REMOTE_PIN) << endl;
+		// flag or remote has activated, shut off motors
+		control.emergency_stop();
+		sleep(1.0);
+
+		// wait for remote and flag to be reset
+		while(digitalRead(FLAG_PIN) == LOW || digitalRead(REMOTE_PIN) == LOW){}
+
+		cout << "Switches ready" << endl;
+
+		// wait for remote to be hit
+		while(digitalRead(REMOTE_PIN) == HIGH){}
+		cout << "Remote hit" << endl;
+		sleep(0.1);
+
+		// wait for remote signal to stop
+		while(digitalRead(REMOTE_PIN) == LOW){}
+		cout << "Remote released" << endl;
+		sleep(0.1);
+
+		return true;
+	}
+	return false;
+
+}
+#endif
+
 // Configure camera settings
 void camera_setup(camera_t & cam) {
     cam.set(CV_CAP_PROP_FORMAT, CV_8UC3); // 3 channel image
@@ -637,3 +723,17 @@ void camera_setup(camera_t & cam) {
     //cam.set(CV_CAP_PROP_FOCUS, 255); // need to check if this works
     //cam.set(CV_CAP_PROP_EXPOSURE, 10);
 }
+
+#ifdef WIRINGPI_H
+void sleep(double seconds)
+{
+	int wholeSeconds = (int)seconds;
+	double remainderSeconds = seconds - wholeSeconds;
+	long int wholeRemainderNanoseconds = round(remainderSeconds * 1e9);
+
+	struct timespec t, t2;
+	t.tv_sec = wholeSeconds;
+	t.tv_nsec = wholeRemainderNanoseconds;
+	nanosleep(&t, &t2);
+}
+#endif
